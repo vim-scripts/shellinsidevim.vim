@@ -1,0 +1,31 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=2497
+
+New version has combined into http://www.vim.org/scripts/script.php?script_id=2793
+
+ --Typing the Ex command "Shell" will also allow you to run a Shell which you
+   give and pass up to 20 parameters to that shell.
+
+   Sample syntax...
+       :Shell ps -e
+
+ --Pressing "F4" will toggle the display of a buffer containing the output
+   produced when running the shell command.
+
+ **************************Some special syntax format**************************
+
+ --If a Shell command starts with ":", this Shell will be executed as a vim Ex
+  command, this is convenience if you map this command to a shortcut such as:
+
+  map <CR> :Shell
+
+  Then you could use this script to execute all the normal command directly.
+
+  --If a Shell command starts with ">", this Shell will be executed with inputs
+  which come from a file, which name is ".VIM_STD_IN". If the input file dose
+ not exsits, you could give the inputs line by line by typing directly.
+
+  --If a Shell command ends with ";", this Shell will be executed as a program
+  development tool. You could use this script for your development, then you 
+  could pass the compile or interpret command as the Shell parameters with ";"
+  followed. When the command finished it will jump to the first error line if
+  there are some errors. Of caurse you should special a compiler first.
