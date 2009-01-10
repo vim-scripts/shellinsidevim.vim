@@ -1,7 +1,7 @@
 " Vim global functions for running shell commands
-" Version: 2.0
-" Maintainer: WarGrey <yoshua@gmail.com>
-" Last change: 2008 Dec 26
+" Version: 2.1
+" Maintainer: WarGrey <juzhenliang@gmail.com>
+" Last change: 2009 Jul 10
 "
 "*******************************************************************************
 "
@@ -24,9 +24,8 @@
 "  Then you could use this script to execute all the normal command directly.
 "
 "  --If a Shell command starts with ">", this Shell will be executed with inputs
-"  which come from a file. You could give this file name by letting the variable
-"  "g:VIM_STD_IN_FILE". If the input file is not exsits, you could give the 
-"  inputs line by line by typing directly.
+"  which come from a file which name is ".VIM_STD_IN". If the input file is not 
+"  exsits, you could give the inputs line by line by typing directly.
 "
 "  --If a Shell command ends with ";", this Shell will be executed as a program
 "  development tool. You could use this script for your development, then you 
@@ -36,12 +35,12 @@
 "
 "*******************************************************************************
 
+if exists("g:load_shellinsidevim") && g:load_shellinsidevim==1
+	finish
+endif
+let g:load_shellinsidevim=1
 
 let s:Results=[]
-
-if !exists("g:VIM_STD_IN_FILE")
-	let g:VIM_STD_IN_FILE="VIM_STD_IN"
-endif
 
 " Ex command which take 0 or more ( up to 20 ) parameters
 command -complete=file -nargs=* Shell call g:ExecuteCommand(<f-args>)
@@ -68,11 +67,15 @@ function g:ExecuteCommand(...)
 		let index=index+1
 	endwhile
 	
-	if match(cmd,"^ :")==0 || match(cmd,"^ !")==0
-		call s:ExecuteVimcmd(msg,cmd)
-	else
-		call s:ExecuteShell(msg,cmd)
-	endif
+	try
+		if match(msg,"^ :")==0 || match(msg,"^ !")==0
+			call s:ExecuteVimcmd(msg,cmd)
+		else
+			call s:ExecuteShell(msg,cmd)
+		endif
+	catch /.*/
+		call g:EchoErrorMsg(v:exception)
+	endtry
 endfunction
 
 function g:Trim(str)
@@ -92,6 +95,10 @@ function g:ToggleOutputWindow()
 		let this=bufwinnr("%")
 		let @r=join(s:Results,"").s:GetCmdPreffix("SHELL")."  "
 		silent! rightbelow new VIM_STD_OUTPUT
+		syntax match shell "^\[SHELL@.*\].*$" contains=command
+		syntax match command "\s.*$" contained
+		hi def shell ctermfg=green
+		hi def command ctermfg=darkcyan
 		resize 8
 		setlocal buftype=nofile
 		setlocal readonly 
@@ -142,46 +149,45 @@ function s:ExecuteVimcmd(vimmsg,vimcmd)
 endfunction
 
 function s:ExecuteShell(shellmsg,shellcmd)
+	let shellcmd=substitute(a:shellcmd,'\s*;*\s*$','','g')
 	if match(a:shellmsg,"^ >")==0
-		let shellcmd=substitute(a:shellcmd,"^ >"," ","g")
-		if !filereadable(g:VIM_STD_IN_FILE)
+		let shellcmd=substitute(shellcmd,"^ >"," ","g")
+		if !filereadable('.VIM_STD_IN')
 			let choice=confirm("Input-file not found, give now?","&Yes\n&No",1)
 			if choice!=1
-				call g:EchoErrorMsg("Missing inputs which are required, Exit!")
-				return
-			endif
-			echo 'Pease give the inputs line by line util "EOF" gave.'
-			let lines=[]
-			let line=input("")
-			while line != "EOF"
-				call add(lines,line)
+				call g:EchoWarningMsg("Missing inputs which are required, The application may be aborted!")
+				call writefile([""],'.VIM_STD_IN')
+			else
+				echo 'Pease give the inputs line by line util "EOF" gave.'
+				let lines=[]
 				let line=input("")
-			endwhile
-			call writefile(lines,g:VIM_STD_IN_FILE)
+				while line != "EOF"
+					call add(lines,line)
+					let line=input("")
+				endwhile
+				call writefile(lines,'.VIM_STD_IN')
+			endif
+			echo "Running..."
 		endif
-		let @+=system(shellcmd,g:VIM_STD_IN_FILE)
-	else
-		let @+=system(a:shellcmd)
+		let shellcmd.=' < .VIM_STD_IN'
 	endif
-
+	
+	let @+=system(shellcmd)
 	if v:shell_error!=0
 		let error="Shell failed with the exit code ".v:shell_error
 		call g:EchoWarningMsg(error)
-		let @+=@+."\n".error."\n"
 	endif
 
-	let cmd=s:GetCmdPreffix("SHELL").a:shellmsg
-	if match(a:shellcmd,";$")>-1
+	let cmd=s:GetCmdPreffix("SHELL").shellcmd
+	if match(a:shellmsg,";$")>-1
 		cexpr @+
 	endif
 
 	if &history>0 && len(s:Results)==&history
-		remove(s:Results,0)
+		call remove(s:Results,0)
 	endif
 	call add(s:Results,cmd."\n".@+)
 	
 	call g:ShowInOutputWindow()
 	call g:EchoMoreMsg(cmd)
 endfunction
-
-call g:ToggleOutputWindow()
