@@ -1,7 +1,7 @@
 " Vim global functions for running shell commands
-" Version: 2.1
+" Version: 2.2
 " Maintainer: WarGrey <juzhenliang@gmail.com>
-" Last change: 2009 Jul 10
+" Last change: 2009 Mar 04
 "
 "*******************************************************************************
 "
@@ -40,14 +40,21 @@ if exists("g:load_shellinsidevim") && g:load_shellinsidevim==1
 endif
 let g:load_shellinsidevim=1
 
+if !exists("g:AutoShowOutputWindow")
+	let g:AutoShowOutputWindow=0
+endif
+if !exists("g:ShowOutputInCommandline")
+	let g:ShowOutputInCommandline=0
+endif
+
 let s:Results=[]
 
 " Ex command which take 0 or more ( up to 20 ) parameters
 command -complete=file -nargs=* Shell call g:ExecuteCommand(<f-args>)
 map <unique> <silent> <F4> :call g:ToggleOutputWindow()<CR>
 map <silent> <C-F4> :messages<CR>
-imap <unique> <silent> <F4> <ESC><F4>
-imap <silent> <C-F4> <ESC><C-F4>
+imap <unique> <silent> <F4> <ESC><F4>a
+imap <silent> <C-F4> <ESC><C-F4>a
 
 function g:ExecuteCommand(...)
 	if a:0==0
@@ -55,20 +62,11 @@ function g:ExecuteCommand(...)
 		return
 	endif
 
-	let index=1
-	let msg=""
-	let cmd=""
-	while index<=a:0
-		execute 'let para=g:Trim(a:'.index.')'
-		if strlen(para)>0
-			let msg=msg." ".para
-			let cmd=cmd." ".substitute(expand(para),"\n"," ",'g')
-		endif
-		let index=index+1
-	endwhile
-	
 	try
-		if match(msg,"^ :")==0 || match(msg,"^ !")==0
+		let parms=map(deepcopy(a:000),'g:Trim(v:val)')
+		let msg=join(parms,' ')
+		let cmd=join(map(parms,'substitute(expand(v:val),"\n"," ","g")'),' ')
+		if msg=~'^:'
 			call s:ExecuteVimcmd(msg,cmd)
 		else
 			call s:ExecuteShell(msg,cmd)
@@ -76,12 +74,6 @@ function g:ExecuteCommand(...)
 	catch /.*/
 		call g:EchoErrorMsg(v:exception)
 	endtry
-endfunction
-
-function g:Trim(str)
-	let str=substitute(a:str,"^\\s*","","g")
-	let str=substitute(str,"\\s*$","","g")
-	return str
 endfunction
 
 " Display a buffer containing the contents of s:Results
@@ -97,8 +89,10 @@ function g:ToggleOutputWindow()
 		silent! rightbelow new VIM_STD_OUTPUT
 		syntax match shell "^\[SHELL@.*\].*$" contains=command
 		syntax match command "\s.*$" contained
+		syntax match interrupt "^\s*Vim:Interrupt\s*$"
 		hi def shell ctermfg=green
 		hi def command ctermfg=darkcyan
+		hi def interrupt ctermfg=red
 		resize 8
 		setlocal buftype=nofile
 		setlocal readonly 
@@ -111,52 +105,32 @@ function g:ToggleOutputWindow()
 	endif
 endfunction
 
-function g:ShowInOutputWindow()
-	if bufloaded("VIM_STD_OUTPUT")>0
-		silent! bwipeout VIM_STD_OUTPUT
-	endif
-	call g:ToggleOutputWindow()
-endfunction
-
-" Highlight echo
-function g:EchoErrorMsg(msg)
-	echohl ErrorMsg
-	echo a:msg
-	echohl None
-endfunction
-
-function g:EchoWarningMsg(msg)
-	echohl WarningMsg
-	echomsg a:msg
-	echohl None
-endfunction
-
-function g:EchoMoreMsg(msg)
-	echohl MoreMsg
-	echomsg a:msg
-	echohl
-endfunction
-
 " Some useful private functions
 function s:GetCmdPreffix(type)
-	return "[".a:type."@".fnamemodify(getcwd(),":~").":".fnamemodify(bufname('%'),":.")."]"
+	return "[".a:type."@".fnamemodify(getcwd(),":~").":".fnamemodify(bufname('%'),":.")."] "
 endfunction
 
 function s:ExecuteVimcmd(vimmsg,vimcmd)
-	let msg=substitute(substitute(a:vimmsg,"^ :"," ","g"),";$","","g")
+	let msg=substitute(a:vimmsg,'\(\s*;\s*$\)','','g')
 	call g:EchoMoreMsg(s:GetCmdPreffix("ViM").msg)
 	execute msg
 endfunction
 
 function s:ExecuteShell(shellmsg,shellcmd)
 	let shellcmd=substitute(a:shellcmd,'\s*;*\s*$','','g')
-	if match(a:shellmsg,"^ >")==0
-		let shellcmd=substitute(shellcmd,"^ >"," ","g")
+	if match(a:shellmsg,'^\s*>>\s*')==0
+		let shellcmd=substitute(shellcmd,'^\s*>>\s*','','g')
+		if !filereadable('.VIM_STD_IN')
+			call writefile([],'.VIM_STD_IN')
+		endif
+		let shellcmd.=' < .VIM_STD_IN'
+	elseif match(a:shellmsg,'^\s*>\s*')==0
+		let shellcmd=substitute(shellcmd,'^\s*>\s*','','g')
 		if !filereadable('.VIM_STD_IN')
 			let choice=confirm("Input-file not found, give now?","&Yes\n&No",1)
 			if choice!=1
 				call g:EchoWarningMsg("Missing inputs which are required, The application may be aborted!")
-				call writefile([""],'.VIM_STD_IN')
+				call writefile([],'.VIM_STD_IN')
 			else
 				echo 'Pease give the inputs line by line util "EOF" gave.'
 				let lines=[]
@@ -172,15 +146,17 @@ function s:ExecuteShell(shellmsg,shellcmd)
 		let shellcmd.=' < .VIM_STD_IN'
 	endif
 	
-	let @+=system(shellcmd)
+	let cmd=s:GetCmdPreffix("SHELL").shellcmd
+	call g:EchoMoreMsg(cmd)
+	try
+		let @+=substitute(system(shellcmd),'\n*$','\n','g')
+	catch /.*/
+		let @+=v:exception."\n"
+	endtry
+	let @+=substitute(@+,"^\n$",'','g')
 	if v:shell_error!=0
 		let error="Shell failed with the exit code ".v:shell_error
 		call g:EchoWarningMsg(error)
-	endif
-
-	let cmd=s:GetCmdPreffix("SHELL").shellcmd
-	if match(a:shellmsg,";$")>-1
-		cexpr @+
 	endif
 
 	if &history>0 && len(s:Results)==&history
@@ -188,6 +164,19 @@ function s:ExecuteShell(shellmsg,shellcmd)
 	endif
 	call add(s:Results,cmd."\n".@+)
 	
-	call g:ShowInOutputWindow()
-	call g:EchoMoreMsg(cmd)
+	if g:AutoShowOutputWindow || bufloaded("VIM_STD_OUTPUT")>0
+		if bufloaded("VIM_STD_OUTPUT")>0
+			silent! bwipeout VIM_STD_OUTPUT
+		endif
+		call g:ToggleOutputWindow()
+	endif
+	if g:ShowOutputInCommandline
+		echo @+
+	endif
+	
+	if match(a:shellmsg,'\s*;\s*$')>-1
+		cexpr @+
+	endif
 endfunction
+
+call g:ToggleOutputWindow()
