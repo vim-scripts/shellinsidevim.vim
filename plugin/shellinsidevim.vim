@@ -1,7 +1,7 @@
 " Vim global functions for running shell commands
-" Version: 2.2
+" Version: 2.3
 " Maintainer: WarGrey <juzhenliang@gmail.com>
-" Last change: 2009 Mar 04
+" Last change: 2009 Mar 07
 "
 "*******************************************************************************
 "
@@ -35,16 +35,21 @@
 "
 "*******************************************************************************
 
-if exists("g:load_shellinsidevim") && g:load_shellinsidevim==1
+if exists("b:load_shellinsidevim") && b:load_shellinsidevim==1
 	finish
 endif
-let g:load_shellinsidevim=1
+let b:load_shellinsidevim=1
+
+source $VIMRUNTIME/plugin/common.vim
 
 if !exists("g:AutoShowOutputWindow")
 	let g:AutoShowOutputWindow=0
 endif
 if !exists("g:ShowOutputInCommandline")
 	let g:ShowOutputInCommandline=0
+endif
+if !exists("g:ShowOutputWindowWhenVimLaunched")
+	let g:ShowOutputWindowWhenVimLaunched=1
 endif
 
 let s:Results=[]
@@ -85,9 +90,9 @@ function g:ToggleOutputWindow()
 		endif
 		
 		let this=bufwinnr("%")
-		let @r=join(s:Results,"").s:GetCmdPreffix("SHELL")."  "
+		let @r=join(s:Results,"").s:GetCmdPreffix("SHELL")." "
 		silent! rightbelow new VIM_STD_OUTPUT
-		syntax match shell "^\[SHELL@.*\].*$" contains=command
+		syntax match shell "\[SHELL@.*\].*$" contains=command
 		syntax match command "\s.*$" contained
 		syntax match interrupt "^\s*Vim:Interrupt\s*$"
 		hi def shell ctermfg=green
@@ -141,7 +146,6 @@ function s:ExecuteShell(shellmsg,shellcmd)
 				endwhile
 				call writefile(lines,'.VIM_STD_IN')
 			endif
-			echo "Running..."
 		endif
 		let shellcmd.=' < .VIM_STD_IN'
 	endif
@@ -149,20 +153,24 @@ function s:ExecuteShell(shellmsg,shellcmd)
 	let cmd=s:GetCmdPreffix("SHELL").shellcmd
 	call g:EchoMoreMsg(cmd)
 	try
-		let @+=substitute(system(shellcmd),'\n*$','\n','g')
+		let @+=system(shellcmd)
 	catch /.*/
 		let @+=v:exception."\n"
 	endtry
-	let @+=substitute(@+,"^\n$",'','g')
 	if v:shell_error!=0
 		let error="Shell failed with the exit code ".v:shell_error
 		call g:EchoWarningMsg(error)
 	endif
 
-	if &history>0 && len(s:Results)==&history
-		call remove(s:Results,0)
+	if a:shellmsg=~'^\s*>*\s*clear\s*;*\s*$'
+		let s:Results=[]
+		let @+=''
+	else
+		if &history>0 && len(s:Results)==&history
+			call remove(s:Results,0)
+		endif
+		call add(s:Results,cmd."\n".@+)
 	endif
-	call add(s:Results,cmd."\n".@+)
 	
 	if g:AutoShowOutputWindow || bufloaded("VIM_STD_OUTPUT")>0
 		if bufloaded("VIM_STD_OUTPUT")>0
@@ -179,4 +187,6 @@ function s:ExecuteShell(shellmsg,shellcmd)
 	endif
 endfunction
 
-call g:ToggleOutputWindow()
+if g:ShowOutputWindowWhenVimLaunched>0
+	call g:ToggleOutputWindow()
+endif

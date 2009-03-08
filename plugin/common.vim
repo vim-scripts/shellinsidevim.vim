@@ -1,20 +1,20 @@
-" Vim global functions for running shell commands
+" Vim global functions for running commands
 " Version: 2.1
 " Maintainer: WarGrey <juzhenliang@gmail.com>
 " Last change: 2009 Jul 10
 "*******************************************************************************
 
-if exists("g:load_common") && g:load_common==1
+if exists("b:load_common") && b:load_common==1
 	finish
 endif
-let g:load_common=1
+let b:load_common=1
 
 function g:Trim(str)
 	return substitute(a:str,'\(^\s*\)\|\(\s*$\)','','g')
 endfunction
 
 function g:FileExists(file)
-	return isdirectory(a:file) || filereadable(a:file)
+	return isdirectory(resolve(a:file)) || filereadable(resolve(a:file))
 endfunction
 
 " Highlight echo
@@ -33,5 +33,5 @@ endfunction
 function g:EchoMoreMsg(msg)
 	echohl MoreMsg
 	echomsg a:msg
-	echohl
+	echohl None
 endfunction
