@@ -1,7 +1,7 @@
 " Vim global functions for running shell commands
-" Version: 2.3
+" Version: 2.4
 " Maintainer: WarGrey <juzhenliang@gmail.com>
-" Last change: 2009 Mar 07
+" Last change: 2009 Mar 09
 "
 "*******************************************************************************
 "
@@ -40,7 +40,7 @@ if exists("b:load_shellinsidevim") && b:load_shellinsidevim==1
 endif
 let b:load_shellinsidevim=1
 
-source $VIMRUNTIME/plugin/common.vim
+runtime! plugin/common.vim
 
 if !exists("g:AutoShowOutputWindow")
 	let g:AutoShowOutputWindow=0
@@ -95,9 +95,11 @@ function g:ToggleOutputWindow()
 		syntax match shell "\[SHELL@.*\].*$" contains=command
 		syntax match command "\s.*$" contained
 		syntax match interrupt "^\s*Vim:Interrupt\s*$"
-		hi def shell ctermfg=green
-		hi def command ctermfg=darkcyan
-		hi def interrupt ctermfg=red
+		syntax match failinfo "^\s*Shell failed with the exit code.*$"
+		hi def shell ctermfg=green guifg=green
+		hi def command ctermfg=darkcyan guifg=darkcyan
+		hi def interrupt ctermfg=red guifg=red
+		hi def failinfo ctermfg=red guifg=red
 		resize 8
 		setlocal buftype=nofile
 		setlocal readonly 
@@ -150,7 +152,7 @@ function s:ExecuteShell(shellmsg,shellcmd)
 		let shellcmd.=' < .VIM_STD_IN'
 	endif
 	
-	let cmd=s:GetCmdPreffix("SHELL").shellcmd
+	let cmd=s:GetCmdPreffix("SHELL").substitute(shellcmd,'\s*<\s*\.VIM_STD_IN\s*$','','g')
 	call g:EchoMoreMsg(cmd)
 	try
 		let @+=system(shellcmd)
@@ -159,6 +161,7 @@ function s:ExecuteShell(shellmsg,shellcmd)
 	endtry
 	if v:shell_error!=0
 		let error="Shell failed with the exit code ".v:shell_error
+		let @+=@+.((@+=~'\n$')?"":"\n").error."\n"
 		call g:EchoWarningMsg(error)
 	endif
 
