@@ -1,7 +1,7 @@
 " Vim global functions for running shell commands
-" Version: 2.4
+" Version: 2.6
 " Maintainer: WarGrey <juzhenliang@gmail.com>
-" Last change: 2009 Mar 09
+" Last change: 2009 July 16
 "
 "*******************************************************************************
 "
@@ -56,12 +56,12 @@ let s:Results=[]
 
 " Ex command which take 0 or more ( up to 20 ) parameters
 command -complete=file -nargs=* Shell call g:ExecuteCommand(<f-args>)
-map <unique> <silent> <F4> :call g:ToggleOutputWindow()<CR>
+map <unique> <silent> <F4> :call <SID>ToggleOutputWindow()<CR>
 map <silent> <C-F4> :messages<CR>
 imap <unique> <silent> <F4> <ESC><F4>a
 imap <silent> <C-F4> <ESC><C-F4>a
 
-function g:ExecuteCommand(...)
+function! g:ExecuteCommand(...)
 	if a:0==0
 		call g:EchoWarningMsg(s:GetCmdPreffix("")." <NOTHING TO EXECUTE>")
 		return
@@ -71,18 +71,30 @@ function g:ExecuteCommand(...)
 		let parms=map(deepcopy(a:000),'g:Trim(v:val)')
 		let msg=join(parms,' ')
 		let cmd=join(map(parms,'substitute(expand(v:val),"\n"," ","g")'),' ')
-		if msg=~'^:'
+		if msg=~'^\s*>*\s*:'
 			call s:ExecuteVimcmd(msg,cmd)
 		else
 			call s:ExecuteShell(msg,cmd)
 		endif
 	catch /.*/
-		call g:EchoErrorMsg(v:exception)
+		call g:EchoErrorMsg(v:exception.' at '.v:throwpoint.' ')
 	endtry
 endfunction
 
-" Display a buffer containing the contents of s:Results
-function g:ToggleOutputWindow()
+"Display a buffer containing the contents of s:Results
+function! g:DisplayOutput()
+	if g:AutoShowOutputWindow || bufloaded("VIM_STD_OUTPUT")>0
+		if bufloaded("VIM_STD_OUTPUT")>0
+			silent! bwipeout VIM_STD_OUTPUT
+		endif
+		call s:ToggleOutputWindow()
+	endif
+	if g:ShowOutputInCommandline
+		echo @+
+	endif
+endfunction
+
+function! s:ToggleOutputWindow()
 	if bufloaded("VIM_STD_OUTPUT")==0 
 		if strlen(&buftype) > 0 && bufname("%") != "VIM_STD_OUTPUT"
 			call g:EchoWarningMsg("This buffer does not have the output windows!")
@@ -94,12 +106,14 @@ function g:ToggleOutputWindow()
 		silent! rightbelow new VIM_STD_OUTPUT
 		syntax match shell "\[SHELL@.*\].*$" contains=command
 		syntax match command "\s.*$" contained
+		syntax match innercmd "^>>.*$"
 		syntax match interrupt "^\s*Vim:Interrupt\s*$"
-		syntax match failinfo "^\s*Shell failed with the exit code.*$"
-		hi def shell ctermfg=green guifg=green
-		hi def command ctermfg=darkcyan guifg=darkcyan
-		hi def interrupt ctermfg=red guifg=red
-		hi def failinfo ctermfg=red guifg=red
+		syntax match failinfo "^\s*ExecuteCommand failed:.*$"
+		highlight def shell ctermfg=green guifg=green
+		highlight def command ctermfg=darkcyan guifg=darkcyan
+		highlight def innercmd ctermfg=gray guifg=gray
+		highlight def interrupt ctermfg=red guifg=red
+		highlight def failinfo ctermfg=red guifg=red
 		resize 8
 		setlocal buftype=nofile
 		setlocal readonly 
@@ -113,24 +127,25 @@ function g:ToggleOutputWindow()
 endfunction
 
 " Some useful private functions
-function s:GetCmdPreffix(type)
+function! s:GetCmdPreffix(type)
 	return "[".a:type."@".fnamemodify(getcwd(),":~").":".fnamemodify(bufname('%'),":.")."] "
 endfunction
 
-function s:ExecuteVimcmd(vimmsg,vimcmd)
-	let msg=substitute(a:vimmsg,'\(\s*;\s*$\)','','g')
+function! s:ExecuteVimcmd(vimmsg,vimcmd)
+	let msg=substitute(a:vimmsg,'\(^\s*>*\s*\)\|\(\s*;\s*$\)','','g')
 	call g:EchoMoreMsg(s:GetCmdPreffix("ViM").msg)
 	execute msg
 endfunction
 
-function s:ExecuteShell(shellmsg,shellcmd)
+function! s:ExecuteShell(shellmsg,shellcmd)
 	let shellcmd=substitute(a:shellcmd,'\s*;*\s*$','','g')
+	let rein=''
 	if match(a:shellmsg,'^\s*>>\s*')==0
 		let shellcmd=substitute(shellcmd,'^\s*>>\s*','','g')
 		if !filereadable('.VIM_STD_IN')
 			call writefile([],'.VIM_STD_IN')
 		endif
-		let shellcmd.=' < .VIM_STD_IN'
+		let rein=' 0<.VIM_STD_IN'
 	elseif match(a:shellmsg,'^\s*>\s*')==0
 		let shellcmd=substitute(shellcmd,'^\s*>\s*','','g')
 		if !filereadable('.VIM_STD_IN')
@@ -139,7 +154,7 @@ function s:ExecuteShell(shellmsg,shellcmd)
 				call g:EchoWarningMsg("Missing inputs which are required, The application may be aborted!")
 				call writefile([],'.VIM_STD_IN')
 			else
-				echo 'Pease give the inputs line by line util "EOF" gave.'
+				echo 'Pease give the inputs line by line util "EOF" given.'
 				let lines=[]
 				let line=input("")
 				while line != "EOF"
@@ -149,18 +164,23 @@ function s:ExecuteShell(shellmsg,shellcmd)
 				call writefile(lines,'.VIM_STD_IN')
 			endif
 		endif
-		let shellcmd.=' < .VIM_STD_IN'
+		let rein=' 0<.VIM_STD_IN'
 	endif
 	
-	let cmd=s:GetCmdPreffix("SHELL").substitute(shellcmd,'\s*<\s*\.VIM_STD_IN\s*$','','g')
+	let cmd=s:GetCmdPreffix("SHELL").shellcmd
 	call g:EchoMoreMsg(cmd)
 	try
-		let @+=system(shellcmd)
+		if shellcmd=~'^\s*cd '
+			execute shellcmd
+			let @+=''
+		else
+			let @+=system('cd '.getcwd().' && '.shellcmd.rein)
+		endif
 	catch /.*/
-		let @+=v:exception."\n"
+		let @+=v:exception.' at '.v:throwpoint."\n"
 	endtry
 	if v:shell_error!=0
-		let error="Shell failed with the exit code ".v:shell_error
+		let error="ExecuteCommand failed: shell exit code ".v:shell_error
 		let @+=@+.((@+=~'\n$')?"":"\n").error."\n"
 		call g:EchoWarningMsg(error)
 	endif
@@ -172,24 +192,28 @@ function s:ExecuteShell(shellmsg,shellcmd)
 		if &history>0 && len(s:Results)==&history
 			call remove(s:Results,0)
 		endif
-		call add(s:Results,cmd."\n".@+)
+		call g:AddShellCommandResult(cmd."\n")
+		call g:AddShellCommandResult(@+,match(a:shellmsg,'\s*;\s*$')>-1)
 	endif
-	
-	if g:AutoShowOutputWindow || bufloaded("VIM_STD_OUTPUT")>0
-		if bufloaded("VIM_STD_OUTPUT")>0
-			silent! bwipeout VIM_STD_OUTPUT
-		endif
-		call g:ToggleOutputWindow()
+	call g:DisplayOutput()
+endfunction
+
+function! g:AddShellCommandResult(results,...)
+	let added=''
+	let typeid=type(a:results)
+	if typeid==type([])
+		let added=join(a:results,"\n")
+	elseif typeid==type("")
+		let added=g:Trim(a:results)
 	endif
-	if g:ShowOutputInCommandline
-		echo @+
+	if len(added)>len('')
+		call add(s:Results,added)
 	endif
-	
-	if match(a:shellmsg,'\s*;\s*$')>-1
-		cexpr @+
+	if ((a:0>=1)?(a:1):0)
+		cexpr a:results
 	endif
 endfunction
 
 if g:ShowOutputWindowWhenVimLaunched>0
-	call g:ToggleOutputWindow()
+	call s:ToggleOutputWindow()
 endif
