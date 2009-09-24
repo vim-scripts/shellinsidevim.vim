@@ -1,7 +1,7 @@
 " Vim global functions for running shell commands
-" Version: 2.6
+" Version: 2.7
 " Maintainer: WarGrey <juzhenliang@gmail.com>
-" Last change: 2009 July 16
+" Last change: 2009 Sep 24
 "
 "*******************************************************************************
 "
@@ -53,6 +53,7 @@ if !exists("g:ShowOutputWindowWhenVimLaunched")
 endif
 
 let s:Results=[]
+let g:CurrentCommandResult=''
 
 " Ex command which take 0 or more ( up to 20 ) parameters
 command -complete=file -nargs=* Shell call g:ExecuteCommand(<f-args>)
@@ -90,7 +91,7 @@ function! g:DisplayOutput()
 		call s:ToggleOutputWindow()
 	endif
 	if g:ShowOutputInCommandline
-		echo @+
+		echo g:CurrentCommandResult
 	endif
 endfunction
 
@@ -172,29 +173,35 @@ function! s:ExecuteShell(shellmsg,shellcmd)
 	try
 		if shellcmd=~'^\s*cd '
 			execute shellcmd
-			let @+=''
+			let g:CurrentCommandResult=''
 		else
-			let @+=system('cd '.getcwd().' && '.shellcmd.rein)
+			let g:CurrentCommandResult=system('cd '.getcwd().' && '.shellcmd.rein)
 		endif
 	catch /.*/
-		let @+=v:exception.' at '.v:throwpoint."\n"
+		let g:CurrentCommandResult=v:exception.' at '.v:throwpoint."\n"
 	endtry
 	if v:shell_error!=0
 		let error="ExecuteCommand failed: shell exit code ".v:shell_error
-		let @+=@+.((@+=~'\n$')?"":"\n").error."\n"
+		let g:CurrentCommandResult.=((g:CurrentCommandResult=~'\n$')?"":"\n").error."\n"
 		call g:EchoWarningMsg(error)
 	endif
 
 	if a:shellmsg=~'^\s*>*\s*clear\s*;*\s*$'
 		let s:Results=[]
-		let @+=''
+		let g:CurrentCommandResult=''
 	else
 		if &history>0 && len(s:Results)==&history
 			call remove(s:Results,0)
 		endif
 		call g:AddShellCommandResult(cmd."\n")
-		call g:AddShellCommandResult(@+,match(a:shellmsg,'\s*;\s*$')>-1)
+		call g:AddShellCommandResult(g:CurrentCommandResult,match(a:shellmsg,'\s*;\s*$')>-1)
 	endif
+
+	try
+		let @+=g:CurrentCommandResult
+	catch
+	endtry
+
 	call g:DisplayOutput()
 endfunction
 
